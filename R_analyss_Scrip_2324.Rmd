@@ -1,0 +1,313 @@
+```{r}
+# Analyse Longevity Project data
+
+library("tidyverse")
+library("broom")
+library("ggplot2")
+library("raincloudplots") #This is used for plotting raincloud plot.
+library("gghalves")
+library("multcomp")
+library("dplyr")
+```
+
+
+```{r, include=FALSE}
+# The data path is set and the data is loaded from two different path into a single data file
+datpth2 = "z:\\longevity_2024\\data\\beh_data" 
+datpth1 = "z:\\longevity_2023\\data\\beh_data" 
+grp = c("short_group", "long_group")
+# Select which group you want to analyse
+datsrc = c("RatingData", "SyncData", "TestData")
+
+alldat_test=data.frame()
+for (g in 1:length(grp)) {
+  curfldr1 = paste(datpth1, "\\", grp[g], "\\", datsrc[3], sep = "") # The argument is needed at the end to avoid having white spaces
+  setwd(curfldr1)
+  subs <- list.dirs(path = ".", full.names = FALSE, recursive = FALSE)
+  for (i in 1:length(subs)) {
+    cursubfldr1 = paste(curfldr1, "\\", subs[i], sep = "")
+    setwd(cursubfldr1)
+    blcks <- list.files(pattern="block",path = ".", full.names = FALSE, recursive = FALSE)
+    for (ii in 1:length(blcks)) {
+      tmpdat <- read_csv(blcks[ii])
+      tmpdat <- data.frame(tmpdat, PiD=rep(paste0("23_G", g, "_", subs[i]), times=length(tmpdat))) 
+      tmpdat$testrespMat_.2 <- as.character(tmpdat$testrespMat_.2) # use $ signs to addres specific data frames
+      tmpdat$Grp = c(g) # add group info
+      alldat_test <- bind_rows(alldat_test, tmpdat)
+      
+    }
+    print(i)
+  }
+  curfldr2 = paste(datpth2, "\\", grp[g], "\\", datsrc[3], sep = "") # The argument is needed at the end to avoid having white spaces
+  setwd(curfldr2)
+  subs <- list.dirs(path = ".", full.names = FALSE, recursive = FALSE)
+  for (i in 1:length(subs)) {
+    cursubfldr2 = paste(curfldr2, "\\", subs[i], sep = "")
+    setwd(cursubfldr2)
+    blcks <- list.files(pattern="block",path = ".", full.names = FALSE, recursive = FALSE)
+    for (ii in 1:length(blcks)) {
+      tmpdat <- read_csv(blcks[ii])
+      tmpdat <- data.frame(tmpdat, PiD=rep(paste0("24_", subs[i]), times=length(tmpdat))) 
+      tmpdat$testrespMat_.2 <- as.character(tmpdat$testrespMat_.2) # use $ signs to addres specific data frames
+      tmpdat$Grp = c(g) # add group info
+      alldat_test <- bind_rows(alldat_test, tmpdat)
+      
+    }
+    print(i)
+  }
+}
+```
+
+```{r, include=FALSE}
+# Similarly the single data consolodation is done for the synchrony task
+alldat_sync=data.frame()
+for (g in 1:length(grp)) {
+  curfldr1 = paste(datpth1, "\\", grp[g], "\\", datsrc[2], sep = "") # The argument is needed at the end to avoid having white spaces
+  setwd(curfldr1)
+  subs <- list.dirs(path = ".", full.names = FALSE, recursive = FALSE)
+  for (i in 1:length(subs)) {
+    cursubfldr1 = paste(curfldr1, "\\", subs[i], sep = "")
+    setwd(cursubfldr1)
+    blcks <- list.files(pattern="Sync",path = ".", full.names = FALSE, recursive = FALSE)
+    for (ii in 1:length(blcks)) {
+      tmpdat_sync <- read_csv(blcks[ii])
+      tmpdat_sync <- data.frame(tmpdat_sync, PiD=rep(paste0("23_G", g, "_", subs[i]), g))
+      tmpdat_sync$Grp = c(g) # add group info
+      alldat_sync <- bind_rows(alldat_sync, tmpdat_sync)
+      
+    }
+    print(i)
+  }
+  curfldr2 = paste(datpth2, "\\", grp[g], "\\", datsrc[2], sep = "") # The argument is needed at the end to avoid having white spaces
+  setwd(curfldr2)
+  subs <- list.dirs(path = ".", full.names = FALSE, recursive = FALSE)
+  for (i in 1:length(subs)) {
+    cursubfldr2 = paste(curfldr2, "\\", subs[i], sep = "")
+    setwd(cursubfldr2)
+    blcks <- list.files(pattern="Sync",path = ".", full.names = FALSE, recursive = FALSE)
+    for (ii in 1:length(blcks)) {
+      tmpdat_sync <- read_csv(blcks[ii])
+      tmpdat_sync <- data.frame(tmpdat_sync, PiD=rep(paste0("24_", subs[i]), g))
+      tmpdat_sync$Grp = c(g) # add group info
+      alldat_sync <- bind_rows(alldat_sync, tmpdat_sync)
+      
+    }
+    print(i)
+  }
+}
+
+```
+
+```{r}
+# Get correct (hit) trials and store in new variable for the test data
+alldat_test$Hit <- ifelse(alldat_test$testrespMat_15 == alldat_test$testrespMat_14, 1, 0)
+alldat_test <- rename(alldat_test, "PNum" = `testrespMat_.1`, "PhaseCon" = `testrespMat_.8`)
+alldat_test <- unite(alldat_test, combined, PhaseCon, sep = "-")
+alldat_test <- rename(alldat_test, "Cond" = combined)
+alldat_test <- rename(alldat_test, "React_Time" = `testrespMat_16`)
+
+# Get rid of unnecessary variables
+dat_long <- alldat_test %>% dplyr::select("PiD", "PNum", "Cond", "Hit", "Grp")
+
+dat_long <- dat_long %>% filter(Grp == 1)
+
+dat_hit <- dat_long %>%  filter(Hit == 1)
+
+dat_hit <- dat_hit %>% group_by("PiD", "Cond")
+```
+
+
+```{r}
+# combine to get accuracy for each participant, group, and condition
+dat_shrt <- dat_long %>% 
+  group_by(PiD,Cond) %>% 
+  summarise("Acc" = mean(Hit == 1))
+
+
+# get overall memory performance to check whether participants are above chance level
+mn_mem_perfor <- dat_long %>% 
+  group_by(PiD) %>%
+  summarise("MN_Acc" = mean(Hit))
+
+mn_mem_perfor_strpd <- inner_join(dat_shrt, mn_mem_perfor, by = "PiD")
+
+
+# Calculate chance level using a binomial test
+# Number of trials
+n <- 32
+num_successes <-  13 #Change it to 16 for higher threshold and run it again
+# Probability of success (chance)
+p <- 0.25
+# Perform binomial test
+binom_test_result <- binom.test(num_successes, n, p = p, alternative = "greater")
+guessing_thrshld = num_successes / n
+
+
+```
+
+```{r}
+# kick out participants with guessing level performance
+combined_acc_sd <- mn_mem_perfor_strpd %>% filter (MN_Acc > guessing_thrshld)
+
+#Obtaining the summary data of mean, sd and ci values to plot the mean error bar between both the conditions
+summary_data <- combined_acc_sd %>%
+  group_by(Cond)%>%
+  summarise(
+    # Acc calculations
+    mean_Acc = mean(Acc),
+    sd_value_Acc = sd(Acc),
+    n_value_Acc = n(),
+    sem_Acc = sd_value_Acc / sqrt(n_value_Acc),
+    ci_lower_Acc = mean_Acc - qt(0.975, df = n_value_Acc - 1) * sem_Acc,
+    ci_upper_Acc = mean_Acc + qt(0.975, df = n_value_Acc - 1) * sem_Acc
+  )
+
+```
+
+```{r}
+# Extract data for each condition in desirable format for Rainclod plots
+array_1 <- combined_acc_sd %>% filter(Cond == 0) %>% pull(Acc)
+array_2 <- combined_acc_sd %>% filter(Cond == 180) %>% pull(Acc)
+
+df_1x1 <- data_1x1(
+  array_1 = array_1,
+  array_2 = array_2,
+  jit_distance = .09,
+  jit_seed = 321)
+
+```
+
+
+```{r}
+
+# Create the raincloud plot
+
+raincloud_2 <- raincloud_1x1_repmes(
+  data = df_1x1,
+  colors = (c('purple', 'darkorange')),
+  fills = (c('violet', 'orange')),
+  line_color = 'gray',
+  line_alpha = .3,
+  size = 1,
+  alpha = .6,
+  align_clouds = FALSE) +
+ 
+scale_x_continuous(breaks=c(1,2), labels=c("Sync", "Assync"), limits=c(0, 3)) +
+  xlab("Condition") + 
+  ylab("Accuracy") +
+  theme_classic()
+
+raincloud_2
+
+```
+
+
+```{r}
+plot <- ggplot(data = combined_acc_sd, aes(x = as.factor(Cond), y = Acc)) +
+geom_point( size = 2, color = "grey") +
+  geom_line(group = "PiD")
+geom_hline(yintercept = guessing_thrshld, linetype = "dashed", color = "red") +
+geom_pointrange(data = summary_data, aes(x = Cond, y = mean, ymin = ci_lower, ymax=ci_upper),color = "black") +
+  geom_line(data = summary_data, aes(x = Cond, y = mean, group = 1)) +
+labs( x = "Condition", y = "Accuracy of hits") +
+theme_classic()
+
+plot
+
+```
+
+
+```{r}
+# T-test 0 vs 180
+paired_data <- combined_acc_sd %>%
+  spread(key = Cond, value = Acc)
+
+paired_data <- rename(paired_data, "Cond_0" = '0')
+paired_data <- rename(paired_data, "Cond_180" = '180')
+
+
+
+
+Test <- t.test(paired_data$Cond_0, paired_data$Cond_180, paired = TRUE, alternative = "greater")
+
+
+```
+
+```{r}
+# Get correct (hit) trials and store in new variable for the Sync data to get d prime vlaue
+alldat_sync$Hit <- ifelse(alldat_sync$respMat_10 == 2 & alldat_sync$respMat_11 ==2 , 1, 0) #When both the stimuli is sync
+alldat_sync <- rename(alldat_sync, "PNum" = `respMat_.1`, "PhaseCon" = `respMat_.8`)
+alldat_sync <- unite(alldat_sync, combined, PhaseCon, sep = "-")
+alldat_sync <- rename(alldat_sync, "Cond" = combined)
+alldat_sync <- rename(alldat_sync, "React_Time" = `respMat_12`)
+
+# Get rid of unnecessary variables
+
+
+sync_long <- alldat_sync %>% dplyr::select("PiD", "PNum", "Cond", "Hit", "Grp")
+
+sync_long <- sync_long %>% filter(Grp == 1)
+
+sync_long <- sync_long %>%  filter(Hit == 1)
+
+sync_long <- dat_hit %>% group_by("PiD", "React_Time")
+```
+
+```{r}
+alldat_sync$s2a <- ifelse(alldat_sync$respMat_10 == 1 & alldat_sync$respMat_11 == 2, 1, 0) #False Alarm Rate with unsync provided(1) bt selected sync(2)
+alldat_sync$a2s <- ifelse(alldat_sync$respMat_10 == 2 & alldat_sync$respMat_11 == 1, 1, 0) #False Alarm Rate with async from sync unsync provided(1) bt selected sync(2)
+
+sync_long <- alldat_sync %>% dplyr::select("PiD", "Cond", "Hit", "s2a", "a2s")
+
+sync_shrt <- sync_long %>%
+  group_by(PiD,Cond) %>%
+  summarise("Acc" = mean(Hit)) 
+
+s2a_shrt <- sync_long %>%
+  group_by(PiD,Cond) %>%
+  summarise("s2a" = mean(s2a))
+
+a2s_shrt <- sync_long %>%
+  group_by(PiD, Cond) %>%
+  summarise("a2s" = mean(a2s))
+
+s2a_shrt <- inner_join(sync_shrt, s2a_shrt, by = c("PiD", "Cond"))
+a2s_shrt <- inner_join(sync_shrt, a2s_shrt, by = c("PiD", "Cond"))
+
+#Extract the vaalues
+mean_sync_hit = mean(sync_combined$Acc)
+mean_sync_s2a = mean(sync_combined$s2a)
+mean_sync_a2s = mean(sync_combined$a2s)
+
+s2a_shrt$d_prime1 <- with(s2a_shrt, qnorm(Acc) - qnorm(s2a))
+a2s_shrt$d_prime2 <- with(a2s_shrt, qnorm(Acc) - qnorm(a2s))
+
+# Convert hit rate and assumed false alarm rate to z-scores
+z_HR <- qnorm(mean_sync_hit)
+z_s2a <- qnorm(mean_sync_s2a)
+z_a2s <- qnorm(mean_sync_a2s)
+
+# Calculate d-prime
+d_prime_s2a <- z_HR - z_s2a
+d_prime_a2s <- z_HR - z_a2s
+
+d_prime <- inner_join(s2a_shrt, a2s_shrt, by = c("PiD", "Cond", "Acc"))   # Ensure that 'PiD' and 'Cond' are common columns
+d_prime <- na.omit(d_prime)
+  
+#d_prime <- d_prime %>% select("PiD", "Cond", "d_prime1", "d_prime2")  # Select the columns to keep
+
+# Replace Inf and -Inf with large numbers or a specific finite value
+d_prime$d_prime1[d_prime$d_prime1 == Inf] <- 1e+10
+d_prime$d_prime1[d_prime$d_prime1 == -Inf] <- -1e+10
+
+d_prime$d_prime2[d_prime$d_prime2 == Inf] <- 1e+10
+d_prime$d_prime2[d_prime$d_prime2 == -Inf] <- -1e+10
+
+# Check for missing values
+print(sum(is.na(d_prime)))
+
+Test <- t.test(d_prime$d_prime1, d_prime$d_prime2, paired = TRUE )
+```
+
+
+
